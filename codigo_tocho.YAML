@@ -1,0 +1,117 @@
+# ---------------------------------------------------------
+# Codigo to guapo que ayuda a gestinar cuentas de azure.TM
+# hola Ruben, pastel de chocolate, este codigo revisa todo tu azure, en busca de maquinas creadas y mierdas que hayas hecho.
+# luego da in informe y lo muestra por pantalla, abajo del todo hay cosas importantes a saber, besitos en la nalga izquierda
+# ---------------------------------------------------------
+
+name: Escaneo_Integral_$(Date:yyyyMMdd)$
+
+trigger: none # lit no hace nada lol
+
+variables:
+  # Esto lo explico mas abajo pastelito de crema con nueces
+  serviceConnection: 'MiConexionAzure'
+  entorno: 'Produccion'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+# --- FASE 1 Y 2: Inicio y conexión ---
+- script: |
+    echo "Iniciando sistema de auditoría avanzado..."
+    echo "Entorno: $(entorno)"
+    echo "Agente de ejecución: $(Agent.Name)"
+  displayName: '01. Inicializar Entorno'
+
+# ------
+- task: AzureCLI@2
+  displayName: '02. Inventario con Kusto Query'
+  inputs:
+    azureSubscription: $(serviceConnection)
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      #Cuenta la cantidad de recursos en tu cuenta de azure BB
+      QUERY="resources | summarize cantidad=count() by type | order by cantidad desc"
+      
+      echo "Consultando Azure Resource Graph..."
+      az graph query -q "$QUERY" --output table
+      
+      # Las cuenta para el reporte final
+      TOTAL=$(az graph query -q "resources | count" --query "data[0].count_")
+      echo "##vso[task.setvariable variable=totalRecursos]$TOTAL"
+
+# --- FASE 3: DETECCIÓN DE RECURSOS SIN ETIQUETAS (TAGS) ---
+# Si algo no tiene una etiqueta de que es o que hace, esto se lo pondra 
+- task: AzureCLI@2
+  displayName: '03. Control de Gobernanza (Tags)'
+  inputs:
+    azureSubscription: $(serviceConnection)
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      echo "Buscando recursos que violan la política de etiquetas..."
+      
+      QUERY_TAGS="resources | where isnull(tags) or tags == '{}' | project name, type, resourceGroup"
+      az graph query -q "$QUERY_TAGS" --output table > recursos_sin_tags.txt
+      
+      SIN_TAGS=$(az graph query -q "resources | where isnull(tags) or tags == '{}' | count" --query "data[0].count_")
+      echo "##vso[task.setvariable variable=numSinTags]$SIN_TAGS"
+
+# --- FASE 4: LÓGICA DE NEGOCIO Y ALERTAS ---
+# Si algo no cuadra, esta parte del codigo lo añadira al informe final
+- script: |
+    echo "### ANÁLISIS DE CUMPLIMIENTO ###"
+    echo "Total de recursos analizados: $(totalRecursos)"
+    echo "Recursos sin etiquetas: $(numSinTags)"
+    
+    if [ $(numSinTags) -gt 0 ]; then
+      echo "##vso[task.logissue type=warning]Se han detectado $(numSinTags) recursos sin etiquetas de seguimiento."
+    fi
+  displayName: '04. Evaluación de Resultados'
+
+# --- FASE 5: GENERACIÓN DE REPORTE FINAL ---
+# Esta parte genera un informe final de todo lo escaneado en tu cuenta de azure
+- script: |
+    echo "# REPORTE DE ESTADO DE AZURE" > InformeFinal.md
+    echo "## Resumen Ejecutivo" >> InformeFinal.md
+    echo "- **Fecha:** $(date)" >> InformeFinal.md
+    echo "- **Recursos Totales:** $(totalRecursos)" >> InformeFinal.md
+    echo "- **Incidencias de Seguridad/Tags:** $(numSinTags)" >> InformeFinal.md
+    echo "---" >> InformeFinal.md
+    echo "### Detalle de recursos huérfanos:" >> InformeFinal.md
+    cat recursos_sin_tags.txt >> InformeFinal.md
+  displayName: '05. Generar Documentación'
+
+# --- FASE 6: ALMACENAMIENTO DE EVIDENCIA ---
+# Muestra el reporte
+- task: PublishBuildArtifacts@1
+  displayName: '06. Publicar Reporte'
+  inputs:
+    PathtoPublish: 'InformeFinal.md'
+    ArtifactName: 'AuditLogs'
+    publishLocation: 'Container'
+
+# ---------------------------------------------------------
+# Recuerda borrar esto al acabar XD
+# Hola guapo, geminis, yo y pnachitos de youtube hemos tenido una tarde de pasión para crearte este codigo y tener algo ya montado chulo para pruevas.
+# No obstante, esto necesita algunas cosillas previas para que supuestamente funcione, cosas que haria yo pero en microsoft son unas perras baratas
+# que no dejan hacer nada, hasta yo dando pollazos al teclado haria una mejor interfaz web...perdon, me distraigo
+# Ahora si, tedejo lo necesario y a rezar que funcione:
+#----------------------------------------------------------
+# PASO-1
+# Crear el proyecto en azure ovpd y guardarlo....facilito facilito japonesito
+#----------------------------------------------------------
+# PASO-2 (importante de pelotas)
+# En "projects sentings" abajito a la izquierda en dev ops, busca servicios de conexión, y crea uno nuevo, 
+# elige Azure Resource Manager > Workload identity federation (automatic) y sigue los pasos para unirlo a tu cuenta azure
+# y, para acabar este paso, en el codigo pon el nombre de la conexión que hayas creado, justo al inicio de el todo
+# ---------------------------------------------------------
+# PASO-3
+# Debe haber una subcripción activa, entiendo que en ambas "DA IGUAL SI ES LA GRATIS", ya que usa Azure Resource Graph.
+# En caso de que esto falle, pidele a gpto que quite todo lo que se use de esta parte pues segun entendi parece ser es solo visual
+# pero en principio no deberia fallar
+# ---------------------------------------------------------
+
+#Eso es todo, gracias por tanto, perdon por tan poco <3
